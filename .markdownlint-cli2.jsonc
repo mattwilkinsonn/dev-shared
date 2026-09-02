@@ -1,0 +1,37 @@
+// markdownlint-cli2 config. Used by both:
+//
+//   - The VSCode markdownlint extension (loads `.markdownlint*.{json,jsonc}`).
+//   - `markdownlint-cli2` invocations from CI / the `ci:markdownlint` task.
+//
+// Mirrors the jj-hooks/jj-gt shape — default-on with overrides.
+{
+	"config": {
+		// MD013 (line length): disabled. Hard wraps in prose are a writer's
+		// choice; the rule has no canonical auto-fix (sentence boundary?
+		// word boundary?) so the VSCode extension surfaces the diagnostic
+		// but never fixes it on save. We'd rather not chase the lint than
+		// soft-wrap every paragraph by hand.
+		"MD013": false,
+		// MD060 (table column style): enforce "compact" — single-space
+		// padding around cell content (vs "aligned", which pads every cell
+		// to the column width). Keeps tables uniform without hand-aligning
+		// pipes; mismatched styles within one table are the most common
+		// author mistake.
+		"MD060": {
+			"style": "compact"
+		}
+	},
+	// Skip anything inside dependency / build / VCS dirs. Without this,
+	// bare `markdownlint-cli2 "**/*.md"` descends into the generated
+	// `.devenv/` toolchain tree (cargo/clippy vendored READMEs) and dumps
+	// thousands of errors that aren't our problem.
+	"ignores": [
+		"**/node_modules/**",
+		"**/target/**",
+		"**/dist/**",
+		"**/.git/**",
+		"**/.jj/**",
+		"**/.direnv/**",
+		"**/.devenv/**"
+	]
+}

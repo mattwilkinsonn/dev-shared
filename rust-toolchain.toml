@@ -1,0 +1,8 @@
+# dev-shared's own Rust pin — only used when this repo self-tests the devenv
+# module against its own root (the consumer-fixture check). Consumers do NOT
+# inherit this file; the module resolves `${config.devenv.root}/rust-toolchain.toml`
+# against the CONSUMER's root, so each repo's own pin wins. Kept in step with the
+# tool repos' pin.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
