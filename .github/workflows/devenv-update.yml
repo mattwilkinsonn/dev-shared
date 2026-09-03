@@ -1,0 +1,73 @@
+# Scheduled devenv-lock update PR — the hosted-Renovate-compatible substitute
+# for a self-hosted `postUpgradeTasks` runner. Hosted Renovate's native `nix`
+# manager cannot see devenv.lock (it's devenv's own lock format, not a
+# flake.lock), so devenv.lock's inputs (rolling nixpkgs, rust-overlay, and the
+# dev-shared input itself in a consumer) get NO updates from Renovate. This
+# workflow is their update path.
+#
+# Exposed via workflow_call so a consumer stubs it exactly like the CI gate:
+#
+#   jobs:
+#     devenv-update:
+#       uses: mattwilkinsonn/dev-shared/.github/workflows/devenv-update.yml@v1
+#       permissions:
+#         contents: write
+#         pull-requests: write
+#         id-token: write
+#
+# TWO settings the PR-create step needs, for TWO different reasons:
+#   1. "Allow GitHub Actions to create and approve pull requests" (repo/org),
+#      or the create step silently no-ops.
+#   2. A PAT or App installation token in `token:` IF you want the opened PR to
+#      trigger CI. A PR created with the default GITHUB_TOKEN does NOT start new
+#      workflow runs (GitHub's recursion guard), so the devenv-update PR lands
+#      with NO checks — see the CI-UNVERIFIED caveat on the PR body below.
+# Each consumer's ruleset-setup checklist enables (1); (2) is opt-in hardening.
+name: devenv-update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  update:
+    name: devenv update
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mattwilkinsonn/dev-shared/setup-devenv@v1
+      - name: devenv update
+        run: devenv update
+      - name: Open PR with the lock diff
+        # SHA-pinned (runs with contents:write + pull-requests:write): v8.1.1.
+        # Renovate tracks the trailing comment.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          commit-message: "chore(devenv): update devenv.lock inputs"
+          title: "chore(devenv): update devenv.lock inputs"
+          body: |
+            Scheduled `devenv update` — refreshes the devenv.lock inputs
+            (rolling nixpkgs, rust-overlay, and any other locked inputs) that
+            hosted Renovate's `nix` manager cannot track.
+
+            **CI-UNVERIFIED:** this PR was opened by the default `GITHUB_TOKEN`,
+            so GitHub's recursion guard suppressed CI on it — there are no checks
+            here. Before merging, evaluate the lock manually (`devenv shell -- true`
+            on this branch) so a `devenv.lock` that fails to evaluate does not land
+            green-looking. To get real CI on these PRs, pass a PAT/App token to the
+            workflow's `create-pull-request` step.
+
+            If a `rust-toolchain` bump PR is red because the locked rust-overlay
+            rev predates the new channel manifest, merge this PR first.
+          # Explicit base so a consumer invoking this reusable workflow from a
+          # non-default ref still targets main, not the checked-out ref.
+          base: main
+          branch: devenv-update
+          delete-branch: true

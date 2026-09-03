@@ -1,0 +1,50 @@
+// Shared Renovate preset for the mattwilkinsonn Rust tool repos. A consumer's
+// root renovate.json5 is just:
+//
+//   { extends: ["github>mattwilkinsonn/dev-shared//renovate-preset.json5"] }
+//
+// TWO hosted-Renovate realities this preset does NOT paper over:
+//
+//   1. rust-overlay lockstep is out of scope. orion couples a rust-toolchain.toml
+//      bump to a `devenv update rust-overlay` re-lock via `postUpgradeTasks`
+//      (orion ci/renovate/config.json5). That needs a SELF-HOSTED bot with
+//      `allowedCommands`; hosted Renovate cannot run it. Consequence: a
+//      `rust-toolchain` bump PR merges green ONLY while the locked rust-overlay
+//      rev already carries the new channel manifest. The first stable released
+//      AFTER the locked rev is absent from it, so that bump goes red until the
+//      scheduled devenv-update workflow moves rust-overlay. A red toolchain PR
+//      means: merge the pending devenv-update PR first.
+//
+//   2. The native `nix` manager tracks NOTHING in a pure devenv repo — there is
+//      no root flake.nix to anchor on, and devenv.lock is devenv's own lock
+//      format, not a flake.lock. So devenv.lock's inputs (rolling nixpkgs,
+//      rust-overlay, the dev-shared input itself) get NO updates from Renovate;
+//      their update path is the scheduled devenv-update.yml workflow.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended", "schedule:daily"],
+
+  labels: ["dependencies"],
+
+  // 5-day supply-chain cooldown, matching orion. `strict` holds a PR until a
+  // non-pending version clears the window.
+  minimumReleaseAge: "5 days",
+  internalChecksFilter: "strict",
+
+  // The stack these single-crate Rust repos actually carry. `nix` is listed for
+  // completeness but tracks nothing here (see header reality #2); the real
+  // devenv-lock update path is the scheduled workflow.
+  enabledManagers: ["cargo", "rust-toolchain", "nix", "github-actions"],
+
+  // Group the routine bumps into one PR each to keep review cheap.
+  packageRules: [
+    {
+      matchManagers: ["cargo"],
+      groupName: "cargo dependencies",
+    },
+    {
+      matchManagers: ["github-actions"],
+      groupName: "github-actions",
+    },
+  ],
+}

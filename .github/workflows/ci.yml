@@ -1,0 +1,31 @@
+# dev-shared's own CI. Minimal + direct: this repo has no Rust crate to gate,
+# and calling its own reusable rust-devenv-ci.yml would be circular (that
+# workflow runs `devenv tasks run ci`, a consumer concern) AND would hard-fail
+# (dev-shared defines only the namespaced ci:* lint tasks, no aggregate). So
+# lint what this repo actually ships — workflows, Markdown, and the Nix module
+# (nixfmt + deadnix, since devenv.nix is the module every consumer inherits).
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write # DeterminateSystems/determinate-nix-action needs OIDC
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./setup-devenv
+      - name: actionlint
+        run: devenv shell -- actionlint
+      - name: markdownlint
+        run: devenv shell -- markdownlint-cli2 "**/*.md"
+      - name: nixfmt check
+        run: devenv shell -- bash -c 'find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 nixfmt --check'
+      - name: deadnix
+        run: devenv shell -- bash -c 'find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 deadnix --fail'

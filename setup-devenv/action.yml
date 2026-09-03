@@ -1,0 +1,37 @@
+name: setup-devenv
+description: >-
+  Install Nix + devenv and warm the devenv shell. Nix store caching is the
+  Determinate Nix action's job (FlakeHub cache); this action additionally caches
+  devenv's eval state. The shared CI bootstrap for the mattwilkinsonn Rust tool
+  repos — mirrors the steps each repo's ci.yml ran inline before dev-shared existed.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Nix
+      # Determinate Nix action needs id-token: write on the calling job (OIDC).
+      # SHA-pinned (privileged install steps): v3.22.2. Renovate tracks the comment.
+      uses: DeterminateSystems/determinate-nix-action@527f17dd63d2d60d3e5552934bc84b9a33a14d11 # v3.22.2
+
+    - name: Cache devenv eval state
+      # The Nix STORE is cached by the Determinate action above (FlakeHub cache).
+      # This caches only devenv's own eval state so `devenv shell` doesn't
+      # re-evaluate cold every run: the in-repo `.devenv/` eval cache (gitignored,
+      # regenerated) and devenv's global state dir. `~/.devenv` / `~/.cache/devenv`
+      # are NOT devenv 2.x paths — global state lives under ~/.local/share/devenv.
+      uses: actions/cache@v4
+      with:
+        path: |
+          .devenv
+          ~/.local/share/devenv
+        key: devenv-${{ runner.os }}-${{ hashFiles('devenv.lock', 'devenv.nix', 'devenv.yaml') }}
+        restore-keys: |
+          devenv-${{ runner.os }}-
+
+    - name: Install devenv
+      shell: bash
+      run: nix profile install --accept-flake-config nixpkgs#devenv
+
+    - name: Warm the devenv shell
+      shell: bash
+      run: devenv shell -- true

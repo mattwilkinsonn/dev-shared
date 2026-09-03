@@ -1,0 +1,17 @@
+# dev-shared: the devenv input surface consumers import. A consuming repo adds
+# this repo as an input and `imports:` the module (devenv.nix), inheriting the
+# rust-overlay toolchain wiring + the shared linter/task set.
+#
+# Rolling nixpkgs is devenv's recommended dev-shell channel; rust-overlay builds
+# the exact rust-toolchain.toml Rust pin (the pattern orion uses, devenv.nix:31-33).
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  # rust-overlay builds the exact rust-toolchain.toml Rust pin for the dev shell
+  # + CI. Its channel manifests are committed in-tree .nix files, so toolchain
+  # resolution is pure-eval — no IFD, no hand-maintained sha256 (unlike fenix).
+  rust-overlay:
+    url: github:oxalica/rust-overlay
+    inputs:
+      nixpkgs:
+        follows: nixpkgs

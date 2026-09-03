@@ -1,0 +1,32 @@
+# Reusable CI gate for a single-crate Rust tool repo on the dev-shared toolchain.
+# A consumer stubs it with a thin caller:
+#
+#   jobs:
+#     ci:
+#       uses: mattwilkinsonn/dev-shared/.github/workflows/rust-devenv-ci.yml@v1
+#       permissions:
+#         contents: read
+#         id-token: write   # the Determinate Nix action needs OIDC
+#
+# No inputs: the task DAG (`devenv tasks run ci`) is repo-local, so the gate is
+# uniform and the consumer's devenv.nix owns what `ci` means. The reusable
+# workflow consumes the setup-devenv composite internally, so the bootstrap
+# lives in exactly one place.
+name: rust-devenv-ci
+
+on:
+  workflow_call:
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mattwilkinsonn/dev-shared/setup-devenv@v1
+      - name: devenv tasks run ci
+        run: devenv shell -- devenv tasks run ci
