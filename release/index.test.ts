@@ -13,15 +13,13 @@ describe("validateVersion", () => {
 
 	test("rejects a version missing the leading v", () => {
 		expect(validateVersion("0.3.0")).toEqual({
-			error:
-				"usage: release vX.Y.Z (or vX.Y.Z-rc.1); got: '0.3.0'",
+			error: "usage: release vX.Y.Z (or vX.Y.Z-rc.1); got: '0.3.0'",
 		});
 	});
 
 	test("rejects garbage", () => {
 		expect(validateVersion("banana")).toEqual({
-			error:
-				"usage: release vX.Y.Z (or vX.Y.Z-rc.1); got: 'banana'",
+			error: "usage: release vX.Y.Z (or vX.Y.Z-rc.1); got: 'banana'",
 		});
 	});
 
