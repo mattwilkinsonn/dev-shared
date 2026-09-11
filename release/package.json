@@ -1,0 +1,19 @@
+{
+	"name": "release",
+	"version": "0.1.0",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/mattwilkinsonn/dev-shared.git"
+	},
+	"license": "MIT",
+	"module": "index.ts",
+	"type": "module",
+	"bin": {
+		"release": "./index.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "^5"
+	},
+	"description": "Cut a full release: bump the workspace version, commit, tag, push."
+}

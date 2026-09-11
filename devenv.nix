@@ -29,6 +29,32 @@ let
   rustToolchain =
     (inputs.rust-overlay.lib.mkRustBin { } pkgs).fromRustupToolchainFile
       "${config.devenv.root}/rust-toolchain.toml";
+
+  # jj-hooks, pinned to a released tag. Ships two binaries; `jj-hp` is the one
+  # that matters here — the release script's tag push goes through
+  # `jj-hp push-tags`, because jj has no native tag push (checked through 0.43).
+  #
+  # Pinned in-file rather than as a flake input on purpose: module inputs do not
+  # compose through `imports:` (README.md), so an input would have to be
+  # redeclared in every consumer's devenv.yaml. Both hashes are re-pinned on a
+  # jj-hooks release; `cargoHash` changes only when Cargo.lock does.
+  #
+  # jj-hooks itself overrides this with a build of its own working tree, so its
+  # shell tests the code being edited instead of the pin.
+  jj-hooks = pkgs.rustPlatform.buildRustPackage {
+    pname = "jj-hooks";
+    version = "0.3.12";
+    src = pkgs.fetchFromGitHub {
+      owner = "mattwilkinsonn";
+      repo = "jj-hooks";
+      rev = "73dc3dd1830a637ff4a774b44738d4b329d566cd";
+      hash = "sha256-1jJg199ppkqtDPAxrJtc1G42kXjP0BJDEWv619nYVus=";
+    };
+    cargoHash = "sha256-nQ5gVsHVPNfIqTUaP6ep4EeY5KfMrj4KV5DhY3ZzqGI=";
+    # The suite drives real jj repos and hook backends; jj-hooks' own CI gates
+    # that. Building it here only needs the binaries.
+    doCheck = false;
+  };
 in
 {
   packages = with pkgs; [
@@ -53,9 +79,18 @@ in
     actionlint
     markdownlint-cli2
 
-    # VCS: jj (Matt's review tool; release scripts shell out to it).
+    # VCS: jj (Matt's review tool; release scripts shell out to it) plus
+    # jj-hp, which the release script uses to push tags.
     jujutsu
+    jj-hooks
   ];
+
+  # The release driver, shipped once from here rather than copied into each
+  # tool repo. `${./release/index.ts}` is a path literal, so it resolves
+  # against THIS file's directory and reaches dev-shared's copy even when a
+  # consumer imports the module. Running bun by store path keeps it off the
+  # shell PATH, so a consumer's shell does not gain a bun it never asked for.
+  scripts.release.exec = ''exec ${pkgs.bun}/bin/bun ${./release/index.ts} "$@"'';
 
   # Shared lint task set — root-lint coverage defined once. Each consumer's
   # aggregate `ci` task depends on these (plus its own crate fmt/clippy/test),
