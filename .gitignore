@@ -5,3 +5,6 @@ devenv.local.nix
 
 # direnv
 .direnv/
+
+# bun (release/ is a bun project)
+node_modules/

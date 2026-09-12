@@ -29,3 +29,29 @@ jobs:
         run: devenv shell -- bash -c 'find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 nixfmt --check'
       - name: deadnix
         run: devenv shell -- bash -c 'find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 deadnix --fail'
+
+  # The release driver is a bun/TypeScript project, gated on its own rather
+  # than as a devenv ci:* task: those tasks are the shared lint set every
+  # consumer inherits, and a consumer has no release/ directory to run them
+  # against. Plain setup-bun, no devenv — nothing here needs the Nix shell.
+  release-driver:
+    name: release driver
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: install
+        run: bun install --frozen-lockfile
+      # Explicit node_modules paths, not `bunx <name>`: bunx falls back to
+      # the registry when a local binary is missing, and the bare name
+      # `biome` there is an unrelated package that exits 0 without checking.
+      - name: biome
+        run: ./node_modules/.bin/biome check .
+      - name: typecheck
+        run: ./node_modules/.bin/tsc --noEmit
+      - name: test
+        run: bun test
