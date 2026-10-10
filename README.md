@@ -104,15 +104,25 @@ Read the preset header for the two hosted-Renovate limits it documents
 ## Scheduled devenv-lock updates (`.github/workflows/devenv-update.yml`)
 
 Hosted Renovate cannot update `devenv.lock`, so this workflow opens a weekly
-`devenv update` PR. A consumer stubs it like the CI gate; it needs
-`contents: write` + `pull-requests: write` + `id-token: write`, and the repo
-setting **"Allow GitHub Actions to create and approve pull requests"** enabled.
+`devenv update` PR. It opens the PR with a GitHub App installation token, so the
+PR's CI runs (a `GITHUB_TOKEN`-opened PR triggers no workflows) and no repo needs
+"Allow GitHub Actions to create and approve pull requests". A consumer stubs it:
 
-**These PRs are CI-unverified by default.** A PR opened with the default
-`GITHUB_TOKEN` does not trigger new workflow runs (GitHub's recursion guard), so
-the `devenv-update` PR lands with no checks. Evaluate the lock manually before
-merging (`devenv shell -- true` on the branch), or pass a PAT/App token to the
-workflow's `create-pull-request` step so real CI runs on it.
+```yaml
+jobs:
+  devenv-update:
+    uses: mattwilkinsonn/dev-shared/.github/workflows/devenv-update.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      app-client-id: ${{ vars.DEVENV_UPDATE_APP_CLIENT_ID }}
+    secrets:
+      DEVENV_UPDATE_APP_PRIVATE_KEY: ${{ secrets.DEVENV_UPDATE_APP_PRIVATE_KEY }}
+```
+
+The App needs `contents: write` and `pull-requests: write`, installed on the
+consumer. The bot push runs with git hooks disabled; the PR's CI runs the gate.
 
 ## Versioning
 
