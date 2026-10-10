@@ -30,6 +30,8 @@ jobs:
         with:
           client-id: ${{ inputs.app-client-id || vars.DEVENV_UPDATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.DEVENV_UPDATE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@v4
       - uses: mattwilkinsonn/dev-shared/setup-devenv@v1
       - name: devenv update
