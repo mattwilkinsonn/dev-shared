@@ -37,9 +37,14 @@ jobs:
       - name: devenv update
         run: devenv update
       # The shell warm-up installs the repo's pre-push hook, whose runner is not
-      # on the step PATH; the PR's own CI runs that gate instead.
+      # on the step PATH; the PR's own CI runs that gate instead. hk registers it
+      # as `hook.*` config, which core.hooksPath does not cover.
       - name: Disable git hooks for the bot push
-        run: git config --local core.hooksPath /dev/null
+        run: |
+          git config --local core.hooksPath /dev/null
+          git config --local --name-only --get-regexp '^hook\.' \
+            | sed 's/\.[^.]*$//' | sort -u \
+            | xargs -r -n1 git config --local --remove-section
       - name: Open PR with the lock diff
         # SHA-pinned: it runs with the App's write token. Renovate tracks the comment.
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
