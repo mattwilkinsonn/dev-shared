@@ -34,7 +34,11 @@ runs:
         # Pinned so every consumer gate runs the same task runner; Renovate bumps it.
         # renovate: datasource=github-releases depName=cachix/devenv
         DEVENV_VERSION: v2.4.0
-      run: nix profile install --accept-flake-config "github:cachix/devenv/${DEVENV_VERSION}"
+      run: |
+        nix profile install --accept-flake-config "github:cachix/devenv/${DEVENV_VERSION}"
+        # Fail if PATH resolves any devenv other than the pinned release.
+        installed=$(devenv version)
+        [[ "$installed" == "devenv ${DEVENV_VERSION#v}+"* ]] || { echo "::error::expected devenv ${DEVENV_VERSION}, got: $installed"; exit 1; }
 
     - name: Warm the devenv shell
       shell: bash
