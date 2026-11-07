@@ -70,6 +70,8 @@ in
     rustToolchain
     stdenv.cc
     cargo-nextest
+    # `cargo set-version`, which the release driver runs.
+    cargo-edit
 
     # Nix linters — the set the pre-push gate + CI run.
     nixfmt-rfc-style
