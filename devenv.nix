@@ -29,6 +29,13 @@ let
   rustToolchain =
     (inputs.rust-overlay.lib.mkRustBin { } pkgs).fromRustupToolchainFile
       "${config.devenv.root}/rust-toolchain.toml";
+  # Build the shared release command without adding Go to consumer PATH.
+  releaseDriver = pkgs.buildGoModule {
+    pname = "release";
+    version = "0.1.0";
+    src = ./release;
+    vendorHash = null;
+  };
 
   # jj-hooks, pinned to a released tag. Ships two binaries; `jj-hp` is the one
   # that matters here — the release script's tag push goes through
@@ -85,12 +92,7 @@ in
     jj-hooks
   ];
 
-  # The release driver, shipped once from here rather than copied into each
-  # tool repo. `${./release/index.ts}` is a path literal, so it resolves
-  # against THIS file's directory and reaches dev-shared's copy even when a
-  # consumer imports the module. Running bun by store path keeps it off the
-  # shell PATH, so a consumer's shell does not gain a bun it never asked for.
-  scripts.release.exec = ''exec ${pkgs.bun}/bin/bun ${./release/index.ts} "$@"'';
+  scripts.release.exec = ''exec ${releaseDriver}/bin/release "$@"'';
 
   # Shared lint task set — root-lint coverage defined once. Each consumer's
   # aggregate `ci` task depends on these (plus its own crate fmt/clippy/test),

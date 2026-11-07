@@ -14,6 +14,9 @@ The shared dev + CI toolchain: the `rust-toolchain.toml` Rust pin (built by
 markdownlint-cli2), `cargo-nextest`, `jujutsu`, and the shared lint **task set**
 (`ci:markdownlint` / `ci:actionlint` / `ci:nixfmt` / `ci:deadnix`).
 
+The `release` command is built from `release/` and runs by store path. It stays
+off consumer `PATH`; from a consumer shell, run `devenv shell -- release v1.2.3`.
+
 Consume it from a repo's `devenv.yaml`:
 
 ```yaml
