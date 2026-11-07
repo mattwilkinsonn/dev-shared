@@ -365,6 +365,8 @@ func TestRunCommand(t *testing.T) {
 		wantStdout string
 		wantExit   int
 		wantError  bool
+		capture    bool
+		stream     bool
 	}{
 		{
 			name:       "stdin forwarded",
@@ -372,10 +374,13 @@ func TestRunCommand(t *testing.T) {
 			args:       []string{"-c", "cat"},
 			stdin:      "input data",
 			wantStdout: "input data",
+			capture:    true,
 		},
-		{name: "nonzero exit", command: "sh", args: []string{"-c", "exit 23"}, wantExit: 23},
-		{name: "signal termination", command: "sh", args: []string{"-c", "kill -TERM $$"}, wantExit: 143},
-		{name: "missing executable", command: "release-command-not-found-test", wantError: true},
+		{name: "nonzero exit", command: "sh", args: []string{"-c", "exit 23"}, wantExit: 23, capture: true},
+		{name: "signal termination", command: "sh", args: []string{"-c", "kill -TERM $$"}, wantExit: 143, capture: true},
+		{name: "missing executable", command: "release-command-not-found-test", wantError: true, capture: true},
+		{name: "capture streams", command: "sh", args: []string{"-c", "printf out-payload; printf err-payload >&2"}, capture: true, stream: true},
+		{name: "inherit streams", command: "sh", args: []string{"-c", "printf out-payload; printf err-payload >&2"}, stream: true},
 	}
 
 	for _, test := range tests {
@@ -399,7 +404,34 @@ func TestRunCommand(t *testing.T) {
 				}
 			})
 
-			result, err := runCommand(test.command, test.args, true)
+			var stdoutFile *os.File
+			var stderrFile *os.File
+			originalStdout := os.Stdout
+			originalStderr := os.Stderr
+			if test.stream {
+				stdoutFile, err = os.CreateTemp(t.TempDir(), "stdout")
+				if err != nil {
+					t.Fatal(err)
+				}
+				stderrFile, err = os.CreateTemp(t.TempDir(), "stderr")
+				if err != nil {
+					t.Fatal(err)
+				}
+				os.Stdout = stdoutFile
+				os.Stderr = stderrFile
+				t.Cleanup(func() {
+					os.Stdout = originalStdout
+					os.Stderr = originalStderr
+					if err := stdoutFile.Close(); err != nil {
+						t.Errorf("closing test stdout: %v", err)
+					}
+					if err := stderrFile.Close(); err != nil {
+						t.Errorf("closing test stderr: %v", err)
+					}
+				})
+			}
+
+			result, err := runCommand(test.command, test.args, test.capture)
 			if (err != nil) != test.wantError {
 				t.Fatalf("runCommand() error = %v, want error %t", err, test.wantError)
 			}
@@ -409,7 +441,37 @@ func TestRunCommand(t *testing.T) {
 			if result.exitCode != test.wantExit {
 				t.Errorf("runCommand() exit code = %d, want %d", result.exitCode, test.wantExit)
 			}
-			if result.stdout != test.wantStdout {
+			if test.name == "capture streams" {
+				if result.stdout != "out-payload" || result.stderr != "err-payload" {
+					t.Error("captured output did not contain the child stdout and stderr streams")
+				}
+			}
+			if test.name == "inherit streams" {
+				if result.stdout != "" || result.stderr != "" {
+					t.Error("inherited output was also returned as captured output")
+				}
+				if _, err := stdoutFile.Seek(0, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+				stdout, err := io.ReadAll(stdoutFile)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(stdout) != "out-payload" {
+					t.Error("child stdout was not written to inherited stdout")
+				}
+				if _, err := stderrFile.Seek(0, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+				stderr, err := io.ReadAll(stderrFile)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(stderr) != "err-payload" {
+					t.Error("child stderr was not written to inherited stderr")
+				}
+			}
+			if !test.stream && result.stdout != test.wantStdout {
 				t.Errorf("runCommand() stdout = %q, want %q", result.stdout, test.wantStdout)
 			}
 		})
