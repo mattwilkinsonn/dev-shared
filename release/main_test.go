@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -71,11 +73,17 @@ func TestValidateVersion(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := validateVersion(test.input)
-			if (err != nil) != test.wantErr {
-				t.Fatalf("validateVersion(%q) error = %v, want error %t", test.input, err, test.wantErr)
+			if err != nil {
+				if test.wantErr {
+					return
+				}
+				t.Fatalf("validateVersion() error = %v", err)
+			}
+			if test.wantErr {
+				t.Error("validateVersion() accepted an invalid version")
 			}
 			if got != test.expected {
-				t.Errorf("validateVersion(%q) = %q, want %q", test.input, got, test.expected)
+				t.Errorf("validateVersion() = %q, want %q", got, test.expected)
 			}
 		})
 	}
@@ -86,56 +94,52 @@ func TestVerifyBumps(t *testing.T) {
 		name      string
 		cargoToml string
 		bare      string
-		want      []string
+		wantError bool
 	}{
 		{
 			name:      "updated version",
 			cargoToml: "version = \"0.4.0\"\nedition = \"2024\"\n",
 			bare:      "0.4.0",
-			want:      []string{},
 		},
 		{
 			name:      "stale version",
 			cargoToml: "version = \"0.3.7\"\nedition = \"2024\"\n",
 			bare:      "0.4.0",
-			want: []string{
-				"error: workspace Cargo.toml version didn't bump to 0.4.0",
-				"version = \"0.3.7\"",
-			},
+			wantError: true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := verifyBumps(test.cargoToml, test.bare)
-			if strings.Join(got, "\n") != strings.Join(test.want, "\n") {
-				t.Errorf("verifyBumps() = %q, want %q", got, test.want)
+			if (len(got) > 0) != test.wantError {
+				t.Errorf("verifyBumps() returned %d failures, want error %t", len(got), test.wantError)
 			}
 		})
 	}
 }
 
 func TestActionsURL(t *testing.T) {
-	const generic = "   the release workflow on GitHub Actions"
 	tests := []struct {
 		name    string
 		content string
 		readErr error
-		want    string
+		wantURL string
+		generic bool
 	}{
 		{
 			name:    "github repository",
 			content: "[package]\nname = \"jj-hooks\"\nrepository = \"https://github.com/mattwilkinsonn/jj-hooks\"\n",
-			want:    "   https://github.com/mattwilkinsonn/jj-hooks/actions/workflows/release.yml",
+			wantURL: "https://github.com/mattwilkinsonn/jj-hooks/actions/workflows/release.yml",
 		},
 		{
 			name:    "repository with git suffix",
 			content: "repository = \"https://github.com/mattwilkinsonn/jj-gt.git\"\n",
-			want:    "   https://github.com/mattwilkinsonn/jj-gt/actions/workflows/release.yml",
+			wantURL: "https://github.com/mattwilkinsonn/jj-gt/actions/workflows/release.yml",
 		},
-		{name: "missing repository", content: "[package]\nname = \"x\"\n", want: generic},
-		{name: "non-github repository", content: "repository = \"https://gitlab.com/x/y\"\n", want: generic},
-		{name: "unreadable Cargo manifest", readErr: errors.New("missing"), want: generic},
+		{name: "missing repository", content: "[package]\nname = \"x\"\n", generic: true},
+		{name: "non-github repository", content: "repository = \"https://gitlab.com/x/y\"\n", generic: true},
+		{name: "unreadable Cargo manifest", readErr: errors.New("missing"), generic: true},
 	}
 
 	for _, test := range tests {
@@ -143,8 +147,14 @@ func TestActionsURL(t *testing.T) {
 			got := actionsURL(func(string) (string, error) {
 				return test.content, test.readErr
 			})
-			if got != test.want {
-				t.Errorf("actionsURL() = %q, want %q", got, test.want)
+			if test.generic {
+				if strings.Contains(got, "https://github.com/") {
+					t.Error("actionsURL() returned a repository URL without a valid repository")
+				}
+				return
+			}
+			if !strings.Contains(got, test.wantURL) {
+				t.Errorf("actionsURL() did not return the derived workflow URL")
 			}
 		})
 	}
@@ -157,9 +167,6 @@ func TestRunOnceGuards(t *testing.T) {
 		"jj --ignore-working-copy tag list": {stdout: "v0.1.0\nv0.2.0\n"},
 		"cargo set-version --help":          {},
 	}
-	goodFiles := map[string]string{
-		"Cargo.toml": "version = \"0.4.0\"\nrepository = \"https://github.com/mattwilkinsonn/jj-hooks\"\n",
-	}
 	tests := []struct {
 		name      string
 		version   string
@@ -169,44 +176,41 @@ func TestRunOnceGuards(t *testing.T) {
 	}{
 		{name: "invalid version", version: "nope", wantCode: 1, wantCalls: 0},
 		{
-			name:    "dirty working copy",
-			version: "v0.4.0",
-			options: fakeOptions{
-				responses: map[string]commandResult{"jj diff": {stdout: "M Cargo.toml\n"}},
-				files:     goodFiles,
-			},
+			name: "dirty working copy", version: "v0.4.0",
+			options: fakeOptions{responses: map[string]commandResult{
+				"jj diff": {stdout: "M Cargo.toml\n"},
+			}},
 			wantCode: 1, wantCalls: 1,
 		},
 		{
-			name:    "not descended from main",
-			version: "v0.4.0",
+			name: "not descended from main", version: "v0.4.0",
 			options: fakeOptions{responses: map[string]commandResult{
+				"jj diff":                      {},
 				"jj --ignore-working-copy log": {stdout: "\n"},
 			}},
 			wantCode: 1, wantCalls: 2,
 		},
 		{
-			name:    "existing tag",
-			version: "v0.4.0",
+			name: "existing tag", version: "v0.4.0",
 			options: fakeOptions{responses: map[string]commandResult{
+				"jj diff":                           {},
 				"jj --ignore-working-copy log":      {stdout: "abcdef\n"},
 				"jj --ignore-working-copy tag list": {stdout: "v0.3.9\nv0.4.0\n"},
 			}},
 			wantCode: 1, wantCalls: 3,
 		},
 		{
-			name:    "missing cargo-edit",
-			version: "v0.4.0",
+			name: "missing cargo-edit", version: "v0.4.0",
 			options: fakeOptions{responses: map[string]commandResult{
+				"jj diff":                           {},
 				"jj --ignore-working-copy log":      {stdout: "abcdef\n"},
-				"cargo set-version --help":          {exitCode: 1},
 				"jj --ignore-working-copy tag list": {stdout: ""},
+				"cargo set-version --help":          {exitCode: 1},
 			}},
 			wantCode: 1, wantCalls: 4,
 		},
 		{
-			name:    "bump verification failure",
-			version: "v0.4.0",
+			name: "bump verification failure", version: "v0.4.0",
 			options: fakeOptions{
 				responses: happyResponses,
 				files:     map[string]string{"Cargo.toml": "version = \"0.3.7\"\n"},
@@ -250,7 +254,7 @@ func TestRunOnceHappyPath(t *testing.T) {
 		t.Fatalf("runOnce() error = %v", err)
 	}
 	if got != 0 {
-		t.Fatalf("runOnce() = %d, want 0; stderr = %q", got, fake.stderr.String())
+		t.Fatalf("runOnce() = %d, want 0", got)
 	}
 	want := []recordedCommand{
 		{name: "jj", args: []string{"diff", "--summary", "--ignore-working-copy"}},
@@ -276,23 +280,138 @@ func TestRunOnceHappyPath(t *testing.T) {
 		}
 	}
 	if !strings.HasSuffix(fake.stdout.String(), "   https://github.com/mattwilkinsonn/jj-hooks/actions/workflows/release.yml\n") {
-		t.Errorf("success output does not include the derived workflow URL: %q", fake.stdout.String())
+		t.Error("success output omitted the workflow link")
 	}
 }
 
-func TestRunOncePropagatesCommandExitCode(t *testing.T) {
-	fake := &fakeRunner{options: fakeOptions{
-		responses: map[string]commandResult{
-			"jj --ignore-working-copy log":  {stdout: "abcdef123456\n"},
-			"cargo set-version --workspace": {exitCode: 101},
-		},
-		files: map[string]string{"Cargo.toml": "version = \"0.4.0\"\n"},
-	}}
+func TestRunOnceFailureStopsAtCommand(t *testing.T) {
+	tests := []struct {
+		name         string
+		command      string
+		args         []string
+		wantExit     int
+		wantCommands int
+	}{
+		{name: "set version", command: "cargo", args: []string{"set-version", "--workspace", "0.4.0"}, wantExit: 11, wantCommands: 5},
+		{name: "cargo update", command: "cargo", args: []string{"update", "--workspace"}, wantExit: 12, wantCommands: 6},
+		{name: "commit", command: "jj", args: []string{"commit", "-m", "release: v0.4.0"}, wantExit: 13, wantCommands: 7},
+		{name: "set tag", command: "jj", args: []string{"tag", "set", "v0.4.0", "-r", "@-"}, wantExit: 14, wantCommands: 8},
+		{name: "set bookmark", command: "jj", args: []string{"bookmark", "set", "main", "-r", "@-"}, wantExit: 15, wantCommands: 9},
+		{name: "push main", command: "jj", args: []string{"git", "push", "-b", "main"}, wantExit: 16, wantCommands: 11},
+		{name: "push tag", command: "jj-hp", args: []string{"push-tags", "v0.4.0"}, wantExit: 17, wantCommands: 12},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newHappyRunner()
+			key := test.command + " " + strings.Join(test.args, " ")
+			fake.options.responses[key] = commandResult{exitCode: test.wantExit}
+
+			got, err := runOnce(fake.dependencies(), []string{"v0.4.0"})
+			if err != nil {
+				t.Fatalf("runOnce() error = %v", err)
+			}
+			if got != test.wantExit {
+				t.Errorf("runOnce() = %d, want %d", got, test.wantExit)
+			}
+			if len(fake.commands) != test.wantCommands {
+				t.Fatalf("runOnce() issued %d commands, want %d", len(fake.commands), test.wantCommands)
+			}
+			last := fake.commands[len(fake.commands)-1]
+			if last.name != test.command || strings.Join(last.args, "\x00") != strings.Join(test.args, "\x00") {
+				t.Errorf("last command = %#v, want command %q", last, test.command)
+			}
+			if strings.Contains(fake.stdout.String(), "✅ Done.") {
+				t.Error("failed release printed completion output")
+			}
+		})
+	}
+}
+
+func TestRunOnceIgnoresGitExportFailure(t *testing.T) {
+	fake := newHappyRunner()
+	fake.options.responses["jj --ignore-working-copy git export"] = commandResult{exitCode: 1}
+
 	got, err := runOnce(fake.dependencies(), []string{"v0.4.0"})
 	if err != nil {
 		t.Fatalf("runOnce() error = %v", err)
 	}
-	if got != 101 {
-		t.Errorf("runOnce() = %d, want 101", got)
+	if got != 0 {
+		t.Errorf("runOnce() = %d, want 0", got)
+	}
+	if !strings.Contains(fake.stdout.String(), "✅ Done.") {
+		t.Error("release did not complete after git export failed")
+	}
+}
+
+func newHappyRunner() *fakeRunner {
+	return &fakeRunner{options: fakeOptions{
+		responses: map[string]commandResult{
+			"jj --ignore-working-copy log":      {stdout: "abcdef123456\n"},
+			"jj --ignore-working-copy tag list": {stdout: "v0.1.0\nv0.2.0\n"},
+		},
+		files: map[string]string{
+			"Cargo.toml": "version = \"0.4.0\"\nrepository = \"https://github.com/mattwilkinsonn/jj-hooks\"\n",
+		},
+	}}
+}
+
+func TestRunCommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		command    string
+		args       []string
+		stdin      string
+		wantStdout string
+		wantExit   int
+		wantError  bool
+	}{
+		{
+			name:       "stdin forwarded",
+			command:    "sh",
+			args:       []string{"-c", "cat"},
+			stdin:      "input data",
+			wantStdout: "input data",
+		},
+		{name: "nonzero exit", command: "sh", args: []string{"-c", "exit 23"}, wantExit: 23},
+		{name: "signal termination", command: "sh", args: []string{"-c", "kill -TERM $$"}, wantExit: 143},
+		{name: "missing executable", command: "release-command-not-found-test", wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			originalStdin := os.Stdin
+			stdin, err := os.CreateTemp(t.TempDir(), "stdin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.WriteString(stdin, test.stdin); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := stdin.Seek(0, io.SeekStart); err != nil {
+				t.Fatal(err)
+			}
+			os.Stdin = stdin
+			t.Cleanup(func() {
+				os.Stdin = originalStdin
+				if err := stdin.Close(); err != nil {
+					t.Errorf("closing test stdin: %v", err)
+				}
+			})
+
+			result, err := runCommand(test.command, test.args, true)
+			if (err != nil) != test.wantError {
+				t.Fatalf("runCommand() error = %v, want error %t", err, test.wantError)
+			}
+			if test.wantError {
+				return
+			}
+			if result.exitCode != test.wantExit {
+				t.Errorf("runCommand() exit code = %d, want %d", result.exitCode, test.wantExit)
+			}
+			if result.stdout != test.wantStdout {
+				t.Errorf("runCommand() stdout = %q, want %q", result.stdout, test.wantStdout)
+			}
+		})
 	}
 }

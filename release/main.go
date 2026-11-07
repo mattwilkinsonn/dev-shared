@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"syscall"
 )
 
 var versionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?\z`)
@@ -74,6 +75,7 @@ func actionsURL(readFile func(string) (string, error)) string {
 
 func runCommand(name string, args []string, capture bool) (commandResult, error) {
 	command := exec.Command(name, args...)
+	command.Stdin = os.Stdin
 	result := commandResult{}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -96,15 +98,8 @@ func runCommand(name string, args []string, capture bool) (commandResult, error)
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		result.exitCode = exitError.ExitCode()
-		return result, nil
-	}
-	var commandError *exec.Error
-	if errors.As(err, &commandError) {
-		result.exitCode = 127
-		if capture {
-			result.stderr = err.Error() + "\n"
-		} else {
-			slog.Error("release command could not start", "command", name, "error", commandError.Err)
+		if status, ok := exitError.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			result.exitCode = 128 + int(status.Signal())
 		}
 		return result, nil
 	}
