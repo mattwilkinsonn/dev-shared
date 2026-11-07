@@ -22,7 +22,12 @@
 //      their update path is the scheduled devenv-update.yml workflow.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended", "schedule:daily"],
+  // githubActionsVersions tracks `# renovate:` *_VERSION pins in action.yml (the devenv CLI).
+  extends: [
+    "config:recommended",
+    "schedule:daily",
+    "customManagers:githubActionsVersions",
+  ],
 
   labels: ["dependencies"],
 
@@ -34,7 +39,13 @@
   // The stack these single-crate Rust repos actually carry. `nix` is listed for
   // completeness but tracks nothing here (see header reality #2); the real
   // devenv-lock update path is the scheduled workflow.
-  enabledManagers: ["cargo", "rust-toolchain", "nix", "github-actions"],
+  enabledManagers: [
+    "cargo",
+    "rust-toolchain",
+    "nix",
+    "github-actions",
+    "custom.regex",
+  ],
 
   // Group the routine bumps into one PR each to keep review cheap.
   packageRules: [

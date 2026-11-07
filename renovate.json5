@@ -1,0 +1,3 @@
+{
+  extends: ["github>mattwilkinsonn/dev-shared//renovate-preset.json5"],
+}
