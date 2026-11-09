@@ -11,8 +11,8 @@
 #   - the exact rust-toolchain.toml Rust pin, built by rust-overlay (pure-eval,
 #     no hand-maintained sha256 — the orion pattern, orion/devenv.nix:31-33);
 #   - the common linter package set the pre-push gate + CI run;
-#   - the shared lint TASK set (ci:markdownlint / ci:actionlint / ci:nixfmt /
-#     ci:deadnix) so root-lint coverage is defined once here, not per repo.
+#   - the shared CI task set (ci:markdownlint / ci:actionlint / ci:nixfmt /
+#     ci:deadnix / ci:release-cargo-edit), so root coverage is defined once.
 #
 # Hook backends (pre-commit / prek / lefthook / pkl / hk) are NOT here — they
 # are a jj-hooks test-suite concern and live in that repo's own devenv.nix.
@@ -29,11 +29,16 @@ let
   rustToolchain =
     (inputs.rust-overlay.lib.mkRustBin { } pkgs).fromRustupToolchainFile
       "${config.devenv.root}/rust-toolchain.toml";
-  # Build the shared release command without adding Go to consumer PATH.
+  cargoEditPath = pkgs.lib.makeBinPath [ pkgs.cargo-edit ];
+  # Build the release command without adding Go or cargo-edit to consumer PATH.
   releaseDriver = pkgs.buildGoModule {
     pname = "release";
     version = "0.1.0";
     src = ./release;
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postInstall = ''
+      wrapProgram $out/bin/release --prefix PATH : ${cargoEditPath}
+    '';
     vendorHash = null;
   };
 
@@ -110,5 +115,20 @@ in
     "ci:actionlint".exec = "actionlint";
     "ci:nixfmt".exec = ''find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 nixfmt --check'';
     "ci:deadnix".exec = ''find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 deadnix --fail'';
+    # Runs the real wrapper with only cargo and a stub jj on PATH, so the
+    # cargo-edit probe passes only through the wrapper's PATH prefix.
+    "ci:release-cargo-edit".exec = ''
+      work=$(mktemp -d)
+      trap 'rm -rf "$work"' EXIT
+      mkdir "$work/bin"
+      printf '#!/bin/sh\ncase "$*" in *"log -r"*) echo main;; esac\n' >"$work/bin/jj"
+      chmod +x "$work/bin/jj"
+      cargo_dir=$(dirname "$(command -v cargo)")
+      out=$(cd "$work" && PATH="$work/bin:$cargo_dir" "${releaseDriver}/bin/release" v0.0.0 2>&1 || true)
+      case "$out" in
+        *"==> Bumping"*) ;;
+        *) printf 'release did not reach the bump step:\n%s\n' "$out" >&2; exit 1 ;;
+      esac
+    '';
   };
 }

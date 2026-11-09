@@ -2,8 +2,8 @@
 # and calling its own reusable rust-devenv-ci.yml would be circular (that
 # workflow runs `devenv tasks run ci`, a consumer concern) AND would hard-fail
 # (dev-shared defines only the namespaced ci:* lint tasks, no aggregate). So
-# lint what this repo actually ships — workflows, Markdown, and the Nix module
-# (nixfmt + deadnix, since devenv.nix is the module every consumer inherits).
+# lint what this repo ships and check the release wrapper's cargo-edit path:
+# workflows, Markdown, and the Nix module (nixfmt + deadnix).
 name: ci
 
 on:
@@ -21,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./setup-devenv
+      - name: release cargo-edit wrapper
+        run: devenv shell -- devenv tasks run ci:release-cargo-edit
       - name: actionlint
         run: devenv shell -- actionlint
       - name: markdownlint
