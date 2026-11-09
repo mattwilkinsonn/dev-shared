@@ -115,9 +115,20 @@ in
     "ci:actionlint".exec = "actionlint";
     "ci:nixfmt".exec = ''find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 nixfmt --check'';
     "ci:deadnix".exec = ''find . -maxdepth 1 -name "*.nix" -print0 | xargs -0 deadnix --fail'';
+    # Runs the real wrapper with only cargo and a stub jj on PATH, so the
+    # cargo-edit probe passes only through the wrapper's PATH prefix.
     "ci:release-cargo-edit".exec = ''
-      ${pkgs.gnugrep}/bin/grep -F -- "${cargoEditPath}" "${releaseDriver}/bin/release"
-      env PATH="${cargoEditPath}:$PATH" cargo set-version --help
+      work=$(mktemp -d)
+      trap 'rm -rf "$work"' EXIT
+      mkdir "$work/bin"
+      printf '#!/bin/sh\ncase "$*" in *"log -r"*) echo main;; esac\n' >"$work/bin/jj"
+      chmod +x "$work/bin/jj"
+      cargo_dir=$(dirname "$(command -v cargo)")
+      out=$(cd "$work" && PATH="$work/bin:$cargo_dir" "${releaseDriver}/bin/release" v0.0.0 2>&1 || true)
+      case "$out" in
+        *"==> Bumping"*) ;;
+        *) printf 'release did not reach the bump step:\n%s\n' "$out" >&2; exit 1 ;;
+      esac
     '';
   };
 }
