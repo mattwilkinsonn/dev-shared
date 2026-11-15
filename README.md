@@ -11,11 +11,14 @@ Four surfaces, each consumed independently.
 The shared dev + CI toolchain: the `rust-toolchain.toml` Rust pin (built by
 `rust-overlay`, pure-eval, no hand-maintained hash), the linter set
 (nixfmt/deadnix/statix/nil, shellcheck/shfmt/taplo, actionlint,
-markdownlint-cli2), `cargo-nextest`, `jujutsu`, and the shared lint **task set**
-(`ci:markdownlint` / `ci:actionlint` / `ci:nixfmt` / `ci:deadnix`).
+markdownlint-cli2), `cargo-nextest`, `jujutsu`, and the shared CI task set
+(`ci:markdownlint` / `ci:actionlint` / `ci:nixfmt` / `ci:deadnix` /
+`ci:release-cargo-edit`).
 
 The `release` wrapper runs the built binary by store path. Go itself stays off
 consumer `PATH`; from a consumer shell, run `devenv shell -- release v1.2.3`.
+`cargo-edit` powers `release`'s `cargo set-version` probe through the driver
+wrapper and stays off consumer `PATH`.
 
 Consume it from a repo's `devenv.yaml`:
 
